@@ -3,6 +3,7 @@ package image
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/docker/cli/e2e/internal/fixtures"
 	"gotest.tools/v3/assert"
@@ -29,14 +30,14 @@ func TestPullPushPrivateRepository(t *testing.T) {
 
 	icmd.RunCommand("docker", "tag", sourceImage, privateImage).Assert(t, icmd.Success)
 
-	pushNoAuth := icmd.RunCmd(
+	pushNoAuth := runWithPrivateRegistryRetry(t,
 		icmd.Command("docker", "push", privateImage),
 		fixtures.WithConfig(emptyConfigDir),
 	)
 	pushNoAuth.Assert(t, icmd.Expected{ExitCode: 1})
 	assertAuthDenied(t, pushNoAuth)
 
-	pushWithAuth := icmd.RunCmd(
+	pushWithAuth := runWithPrivateRegistryRetry(t,
 		icmd.Command("docker", "push", privateImage),
 		fixtures.WithConfig(dir.Path()),
 	)
@@ -45,14 +46,14 @@ func TestPullPushPrivateRepository(t *testing.T) {
 
 	icmd.RunCommand("docker", "image", "rm", "-f", privateImage).Assert(t, icmd.Success)
 
-	pullNoAuth := icmd.RunCmd(
+	pullNoAuth := runWithPrivateRegistryRetry(t,
 		icmd.Command("docker", "pull", privateImage),
 		fixtures.WithConfig(emptyConfigDir),
 	)
 	pullNoAuth.Assert(t, icmd.Expected{ExitCode: 1})
 	assertAuthDenied(t, pullNoAuth)
 
-	pullWithAuth := icmd.RunCmd(
+	pullWithAuth := runWithPrivateRegistryRetry(t,
 		icmd.Command("docker", "pull", privateImage),
 		fixtures.WithConfig(dir.Path()),
 	)
@@ -71,4 +72,24 @@ func assertAuthDenied(t *testing.T, result *icmd.Result) {
 			strings.Contains(output, "authentication required"),
 		output,
 	)
+}
+
+func runWithPrivateRegistryRetry(t *testing.T, cmd *icmd.Cmd, opts ...func(*icmd.Cmd)) *icmd.Result {
+	t.Helper()
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		result := icmd.RunCmd(cmd, opts...)
+		output := result.Combined()
+		if strings.Contains(output, "lookup private-registry") ||
+			strings.Contains(output, "no such host") ||
+			strings.Contains(output, "server misbehaving") {
+			if time.Now().Before(deadline) {
+				t.Logf("waiting for private registry DNS to become available: %s", output)
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+		}
+		return result
+	}
 }
