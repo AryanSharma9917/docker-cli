@@ -23,7 +23,9 @@ func TestPullPushPrivateRepository(t *testing.T) {
 	sourceImage := fixtures.AlpineImage
 	privateImage := privateRegistryPrefix + "/private/alpine:test-private-pull-push"
 
-	icmd.RunCommand("docker", "pull", sourceImage).Assert(t, icmd.Success)
+	runWithPrivateRegistryRetry(t,
+		icmd.Command("docker", "pull", sourceImage),
+	).Assert(t, icmd.Success)
 	t.Cleanup(func() {
 		icmd.RunCommand("docker", "image", "rm", "-f", privateImage).Assert(t, icmd.Success)
 	})
@@ -74,18 +76,20 @@ func assertAuthDenied(t *testing.T, result *icmd.Result) {
 	)
 }
 
-func runWithPrivateRegistryRetry(t *testing.T, cmd *icmd.Cmd, opts ...func(*icmd.Cmd)) *icmd.Result {
+func runWithPrivateRegistryRetry(t *testing.T, cmd icmd.Cmd, opts ...icmd.CmdOp) *icmd.Result {
 	t.Helper()
 
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for {
 		result := icmd.RunCmd(cmd, opts...)
 		output := result.Combined()
 		if strings.Contains(output, "lookup private-registry") ||
+			strings.Contains(output, "lookup registry") ||
 			strings.Contains(output, "no such host") ||
-			strings.Contains(output, "server misbehaving") {
+			strings.Contains(output, "server misbehaving") ||
+			strings.Contains(output, "Temporary failure in name resolution") {
 			if time.Now().Before(deadline) {
-				t.Logf("waiting for private registry DNS to become available: %s", output)
+				t.Logf("waiting for registry DNS to become available: %s", output)
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
