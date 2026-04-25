@@ -10,7 +10,7 @@ import (
 	"gotest.tools/v3/icmd"
 )
 
-const privateRegistryPrefix = "private-registry:5001"
+const privateRegistryPrefix = "privateregistry:5001"
 
 // Regression test for https://github.com/docker/cli/issues/5963
 func TestPullPushPrivateRepository(t *testing.T) {
@@ -66,6 +66,9 @@ func TestPullPushPrivateRepository(t *testing.T) {
 func assertAuthDenied(t *testing.T, result *icmd.Result) {
 	t.Helper()
 	output := result.Combined()
+	if isPrivateRegistryTransient(output) {
+		t.Fatalf("private registry unavailable while expecting auth failure: %s", output)
+	}
 
 	assert.Check(t,
 		strings.Contains(output, "requested access to the resource is denied") ||
@@ -79,21 +82,31 @@ func assertAuthDenied(t *testing.T, result *icmd.Result) {
 func runWithPrivateRegistryRetry(t *testing.T, cmd icmd.Cmd, opts ...icmd.CmdOp) *icmd.Result {
 	t.Helper()
 
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for {
 		result := icmd.RunCmd(cmd, opts...)
 		output := result.Combined()
-		if strings.Contains(output, "lookup private-registry") ||
-			strings.Contains(output, "lookup registry") ||
-			strings.Contains(output, "no such host") ||
-			strings.Contains(output, "server misbehaving") ||
-			strings.Contains(output, "Temporary failure in name resolution") {
+		if isPrivateRegistryTransient(output) {
 			if time.Now().Before(deadline) {
-				t.Logf("waiting for registry DNS to become available: %s", output)
+				t.Logf("waiting for private registry availability: %s", output)
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
 		}
 		return result
 	}
+}
+
+func isPrivateRegistryTransient(output string) bool {
+	return strings.Contains(output, "lookup privateregistry") ||
+		strings.Contains(output, "lookup registry") ||
+		strings.Contains(output, "no such host") ||
+		strings.Contains(output, "server misbehaving") ||
+		strings.Contains(output, "Temporary failure in name resolution") ||
+		strings.Contains(output, "connection refused") ||
+		strings.Contains(output, "i/o timeout") ||
+		strings.Contains(output, "TLS handshake timeout") ||
+		strings.Contains(output, "context deadline exceeded") ||
+		strings.Contains(output, "connection reset by peer") ||
+		strings.Contains(output, "unexpected EOF")
 }

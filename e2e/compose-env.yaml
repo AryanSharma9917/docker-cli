@@ -5,6 +5,10 @@ services:
 
   private-registry:
     image: 'registry:3'
+    networks:
+      default:
+        aliases:
+          - privateregistry
     environment:
       - REGISTRY_HTTP_ADDR=0.0.0.0:5001
       - REGISTRY_AUTH=htpasswd
@@ -16,6 +20,6 @@ services:
   engine:
       image: 'docker:${ENGINE_VERSION:-29}-dind'
       privileged: true
-      command: ['--insecure-registry=registry:5000', '--insecure-registry=private-registry:5001', '--experimental']
+      command: ['--insecure-registry=registry:5000', '--insecure-registry=privateregistry:5001', '--experimental']
       environment:
         - DOCKER_TLS_CERTDIR=
